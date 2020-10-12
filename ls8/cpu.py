@@ -7,6 +7,10 @@ HLT = 0b00000001
 MUL = 0b10100010
 PUSH = 0b01000101
 POP = 0b01000110
+CMP = 0b10100111
+JMP = 0b01010100
+JEQ = 0b01010101
+JNE = 0b01010110
 
 class CPU:
     """Main CPU class."""
@@ -17,18 +21,14 @@ class CPU:
         self.ram = [0] * 256
         self.registers = [0] * 8 # R0-R7
         self.registers[SP] = 0xF4 # stack pointer
-        self.pc = 0 # Program Counter, address of the currently-executing instuction
+        self.pc = 0
+        self.flag = 0B00000000
 
-        # "Variables" in hardware. Known as "registers".
-        # There are a fixed number of registers
-        # They have fixed names
-        # R0, R1, R2, ... , R6, R7
-
-    # accepts the address to read and return the value stored there.
+    # Accepts the address to read and return the value stored
     def ram_read(self, address):
         return self.ram[address]
 
-    # accepts a value to write, and the address to write it to
+    # Accepts a value to write, and the address to write it to
     def ram_write(self, value, address):
         self.ram[address] = value
 
@@ -62,8 +62,15 @@ class CPU:
         """ALU operations."""
 
         if op == "ADD":
-            self.reg[reg_a] += self.reg[reg_b]
-        #elif op == "SUB": etc
+            self.registers[reg_a] += self.registers[reg_b]
+
+        elif op == "CMP":
+            if self.registers[reg_a] < self.registers[reg_b]:
+                self.flag = 0b00000100 # less than flag
+            if self.registers[reg_a] > self.registers[reg_b]:
+                self.flag = 0b00000010 # greater than flag
+            if self.registers[reg_a] == self.registers[reg_b]:
+                self.flag = 0b00000001 # equal flag
         else:
             raise Exception("Unsupported ALU operation")
 
@@ -96,7 +103,7 @@ class CPU:
             operand_a = self.ram_read(self.pc + 1)
             operand_b = self.ram_read(self.pc + 2)
 
-            if instruction == HLT: # HLT - halt the CPU and exit the emulator.
+            if instruction == HLT: # Halt CPU and exit emulator.
                 self.running = False
                 self.pc += 1
 
@@ -117,62 +124,57 @@ class CPU:
             elif instruction == PUSH:
                 # Decrement Stack Pointer(SP)
                 self.registers[SP] -= 1
-
                 # Get the reg num to push
                 register_num = self.ram_read(self.pc + 1)
-
                 # Get the value to push
                 value = self.registers[register_num]
-
                 # Copy the value to the SP address
                 top_of_stack_addr = self.registers[SP]
                 self.ram[top_of_stack_addr] = value
-
-                # increment program counter to put program back on track
+                # increment program counter to reset
                 self.pc += 2
 
             elif instruction == POP:
-
-                # Get reg to pop into
+                # Get reg to pop in
                 register_num = self.ram_read(self.pc + 1)
-
-                # Get the top of stack addr
+                # Get the top of stack address
                 top_of_stack_addr = self.registers[SP]
-
 		        # Get the value at the top of the stack
                 value = self.ram_read(top_of_stack_addr)
-
 		        # Store the value in the register
                 self.registers[register_num] = value
-
 		        # Increment the SP
                 self.registers[SP] += 1
-
-                # increment program counter to put program back on track
+                # Increment program counter to reset
                 self.pc += 2
 
+            elif instruction == CMP: # Compare values in two registers.
+                op_a = self.ram_read(self.pc + 1)
+                op_b = self.ram_read(self.pc + 2)
+                self.alu("CMP", op_a, op_b)
+                self.pc += 3
 
+            # Jump to the address stored in the given register.
+            elif instruction == JMP:
+                # Get address from register
+                reg_num = self.ram_read(self.pc + 1)
+                # Set pc to address
+                self.pc = self.registers[reg_num]
 
+            # If equal flag is set (true), jump to the address in the given register.
+            elif instruction == JEQ:
+                if self.flag == 0b00000001:
+                    reg_num = self.ram_read(self.pc + 1)
+                    self.pc = self.registers[reg_num]
+                else:
+                    self.pc += 2
 
-# Glossary:
-# immediate: takes a constant integer value as an argument
-# register: takes a register number as an argument
-# iiiiiiii: 8-bit immediate value
-# 00000rrr: Register number
-# 00000aaa: Register number
-# 00000bbb: Register number
-# Machine code values shown in both binary and hexadecimal.
-
-# PRN
-# PRN register pseudo-instruction
-# Print numeric value stored in the given register.
-# Print to the console the decimal integer value that is stored in the given register.
-# Machine code:
-# 01000111 00000rrr
-
-# LDI
-# LDI register immediate
-# load "immediate", store a value in a register, or "set this register to this value".
-# Set the value of a register to an integer.
-# Machine code:
-# 10000010 00000rrr iiiiiiii
+            # If E flag is clear (false, 0), jump to the address in the given register.
+            elif instruction == JNE:
+                if self.flag != 0b00000001:
+                    reg_num = self.ram_read(self.pc + 1)
+                    self.pc = self.registers[reg_num]
+                else:
+                    self.pc += 2
+            else:
+                self.pc += 1
